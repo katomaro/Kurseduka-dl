@@ -452,19 +452,29 @@ user_data = {
 session.cookies.set('user', json.dumps(user_data), domain=cookie_domain)
 session.cookies.set('view', '2', domain=cookie_domain)
 
-course_page = session.get(base_url + '/restrita?redirect=0')
-
-soup = BeautifulSoup(course_page.text, 'html.parser')
-
 courses = []
-for card in soup.select('div.classified'):
-    a = card.select_one('a.font-size-h4')
-    if a and a.get('href'):
-        name = a.get_text(strip=True)
-        url = a['href']
-        if not url.startswith('http'):
-            url = base_url + url
-        courses.append({'name': name, 'url': url})
+page = 1
+while True:
+    params = {
+        'redirect': '0',
+        'limit': '100',
+        'page': str(page)
+    }
+    course_page = session.get(base_url + '/restrita', params=params)
+    soup = BeautifulSoup(course_page.text, 'html.parser')
+    page_courses = []
+    for card in soup.select('div.classified'):
+        a = card.select_one('a.font-size-h4')
+        if a and a.get('href'):
+            name = a.get_text(strip=True)
+            url = a['href']
+            if not url.startswith('http'):
+                url = base_url + url
+            page_courses.append({'name': name, 'url': url})
+    if not page_courses:
+        break
+    courses.extend(page_courses)
+    page += 1
 
 
 if not courses:
