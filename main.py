@@ -483,128 +483,136 @@ if not courses:
     exit(1)
 
 print('Cursos disponíveis:')
+print('0. Todos os cursos')
 for idx, course in enumerate(courses, 1):
     print(f"{idx}. {course['name']}")
 
 while True:
     try:
-        choice = int(input('Selecione o número do curso desejado: '))
-        if 1 <= choice <= len(courses):
+        choice = int(input('Selecione o número do curso desejado (0 para todos): '))
+        if 0 <= choice <= len(courses):
             break
         else:
             print('Escolha inválida.')
     except ValueError:
         print('Por favor, digite um número válido.')
 
-selected = courses[choice - 1]
-course_response = session.get(selected['url'])
-course_html = course_response.text
-# debug_extraction(course_html)
-
-course_data = extract_course_data_specifically(course_html)
-
-if course_data:
-    print("\n=== SUCCESSO EXTRAINDO CONTEUDO DO CURSO, BAIXANDO===")
-    
-    simplified_data = simplify_course_data(course_data)
-
-    course_title = simplified_data.get('title', 'Nome Indeterminado')
-    
-    course_title = sanitize_filename(course_title)
-    download_path = Path('downloads') / course_title
-    
-    download_path.mkdir(parents=True, exist_ok=True)
-    print(f"Criado diretório: {download_path}")
-    
-    for module_index, module in enumerate(simplified_data['modules'], start=1):
-        module_title = sanitize_filename(module['title'])
-        print(f'Baixando módulo: {module_index} - {module_title}')
-        module_path = download_path / f'{module_index}. {module_title}'
-        module_path.mkdir(parents=True, exist_ok=True)
-        
-        for lesson_index, lesson in enumerate(module['lessons'], start=1):
-            lesson_type = lesson.get('type')
-            if lesson_type not in [4, 7]:
-                print(f'Aula {lesson_index} - {lesson["title"]} não suportada por esta versão, envie uma issue no Github!\nSeu type e {lesson_type}')
-                continue
-
-            lesson_title = sanitize_filename(lesson['title'])
-            print(f'Baixando aula: {lesson_index} - {lesson_title}')
-            lesson_path = module_path / f'{lesson_index}. {lesson_title}'
-            lesson_path.mkdir(parents=True, exist_ok=True)
-
-            temp_headers['Authorization'] = f"Bearer {auth_data.get('accessToken', '')}"
-            lesson_data = session.get(edu_watch_f_url.format(lesson_uuid=lesson['uuid']), headers=temp_headers)
-            
-            if lesson_data.status_code == 200:
-                lesson_json = lesson_data.json()
-                
-                video_id = lesson_json.get('videoId')
-                
-                if video_id:
-                    print(f"  + Video ID encontrado: {video_id}")
-                    download_video_with_ytdlp(lesson_type, video_id, lesson_path, base_url)
-                else:
-                    print(f"  - Nenhum video ID encontrado para esta aula")
-                
-                description_html = lesson_json.get('description', '')
-                if description_html:
-                    h = html2text.HTML2Text()
-                    h.ignore_links = False
-                    h.ignore_images = False
-                    h.body_width = 0
-                    description_markdown = h.handle(description_html)
-                    
-                    description_file = lesson_path / "Descrição.txt"
-                    with open(description_file, 'w', encoding='utf-8') as f:
-                        f.write(description_markdown)
-                    
-                    print(f"  + Descrição salva em: {description_file}")
-                else:
-                    print(f"  - Nenhuma descrição encontrada para esta aula")
-
-                
-                if lesson_json.get('complementaries'):
-                    print(f"  + Encontrados {len(lesson_json['complementaries'])} anexos")
-                    for complementary in lesson_json['complementaries']:
-                        file_id = complementary.get('id')
-                        file_name = complementary.get('title', 'arquivo_complementar')
-                        file_url = complementary.get('file', {}).get('url')
-                        
-                        if file_url:
-                            print(f"    + Baixando: {file_name}")
-                            try:
-                                download_url = f"https://clas.curseduca.pro/lessons-complementaries/download?fileName={file_name}&fileUrl={file_url}&api_key={api_key_val}"
-                                
-                                download_headers = {
-                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0',
-                                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                                    'Accept-Language': 'pt-BR,pt;q=0.8,en-US;q=0.5,en;q=0.3',
-                                    'Connection': 'keep-alive',
-                                    'Referer': base_url + '/',
-                                    'Upgrade-Insecure-Requests': '1',
-                                    'Sec-Fetch-Dest': 'document',
-                                    'Sec-Fetch-Mode': 'navigate',
-                                    'Sec-Fetch-Site': 'cross-site',
-                                    'Sec-Fetch-User': '?1',
-                                    'Priority': 'u=0, i',
-                                    'Pragma': 'no-cache',
-                                    'Cache-Control': 'no-cache',
-                                }
-                                
-                                response = session.get(download_url, headers=download_headers)
-                                if response.status_code == 200:
-                                    file_path = lesson_path / file_name
-                                    with open(file_path, 'wb') as f:
-                                        f.write(response.content)
-                                    print(f"    + Arquivo salvo: {file_path}")
-                                else:
-                                    print(f"    - Erro ao baixar {file_name}: {response.status_code}")
-                            except Exception as e:
-                                print(f"    - Erro ao baixar {file_name}: {e}")
-                        else:
-                            print(f"    - URL não encontrada para {file_name}")
-            else:
-                print(f"  - Erro ao obter dados da aula: {lesson_data.status_code}")
+if choice == 0:
+    selected_courses = courses
 else:
-    print("Nao foi possivel extrair os dados do curso")
+    selected_courses = [courses[choice - 1]]
+for course_idx, selected in enumerate(selected_courses, 1):
+    if len(selected_courses) > 1:
+        print(f"\n=== PROCESSANDO CURSO {course_idx}/{len(selected_courses)}: {selected['name']} ===")
+    
+    course_response = session.get(selected['url'])
+    course_html = course_response.text
+    # debug_extraction(course_html)
+
+    course_data = extract_course_data_specifically(course_html)
+
+    if course_data:
+        print("\n=== SUCCESSO EXTRAINDO CONTEUDO DO CURSO, BAIXANDO===")
+        
+        simplified_data = simplify_course_data(course_data)
+
+        course_title = simplified_data.get('title', 'Nome Indeterminado')
+        
+        course_title = sanitize_filename(course_title)
+        download_path = Path('downloads') / course_title
+        
+        download_path.mkdir(parents=True, exist_ok=True)
+        print(f"Criado diretório: {download_path}")
+        
+        for module_index, module in enumerate(simplified_data['modules'], start=1):
+            module_title = sanitize_filename(module['title'])
+            print(f'Baixando módulo: {module_index} - {module_title}')
+            module_path = download_path / f'{module_index}. {module_title}'
+            module_path.mkdir(parents=True, exist_ok=True)
+            
+            for lesson_index, lesson in enumerate(module['lessons'], start=1):
+                lesson_type = lesson.get('type')
+                if lesson_type not in [4, 7]:
+                    print(f'Aula {lesson_index} - {lesson["title"]} não suportada por esta versão, envie uma issue no Github!\nSeu type e {lesson_type}')
+                    continue
+
+                lesson_title = sanitize_filename(lesson['title'])
+                print(f'Baixando aula: {lesson_index} - {lesson_title}')
+                lesson_path = module_path / f'{lesson_index}. {lesson_title}'
+                lesson_path.mkdir(parents=True, exist_ok=True)
+
+                temp_headers['Authorization'] = f"Bearer {auth_data.get('accessToken', '')}"
+                lesson_data = session.get(edu_watch_f_url.format(lesson_uuid=lesson['uuid']), headers=temp_headers)
+                
+                if lesson_data.status_code == 200:
+                    lesson_json = lesson_data.json()
+                    
+                    video_id = lesson_json.get('videoId')
+                    
+                    if video_id:
+                        print(f"  + Video ID encontrado: {video_id}")
+                        download_video_with_ytdlp(lesson_type, video_id, lesson_path, base_url)
+                    else:
+                        print(f"  - Nenhum video ID encontrado para esta aula")
+                    
+                    description_html = lesson_json.get('description', '')
+                    if description_html:
+                        h = html2text.HTML2Text()
+                        h.ignore_links = False
+                        h.ignore_images = False
+                        h.body_width = 0
+                        description_markdown = h.handle(description_html)
+                        
+                        description_file = lesson_path / "Descrição.txt"
+                        with open(description_file, 'w', encoding='utf-8') as f:
+                            f.write(description_markdown)
+                        
+                        print(f"  + Descrição salva em: {description_file}")
+                    else:
+                        print(f"  - Nenhuma descrição encontrada para esta aula")
+
+                    
+                    if lesson_json.get('complementaries'):
+                        print(f"  + Encontrados {len(lesson_json['complementaries'])} anexos")
+                        for complementary in lesson_json['complementaries']:
+                            file_id = complementary.get('id')
+                            file_name = complementary.get('title', 'arquivo_complementar')
+                            file_url = complementary.get('file', {}).get('url')
+                            
+                            if file_url:
+                                print(f"    + Baixando: {file_name}")
+                                try:
+                                    download_url = f"https://clas.curseduca.pro/lessons-complementaries/download?fileName={file_name}&fileUrl={file_url}&api_key={api_key_val}"
+                                    
+                                    download_headers = {
+                                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0',
+                                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                        'Accept-Language': 'pt-BR,pt;q=0.8,en-US;q=0.5,en;q=0.3',
+                                        'Connection': 'keep-alive',
+                                        'Referer': base_url + '/',
+                                        'Upgrade-Insecure-Requests': '1',
+                                        'Sec-Fetch-Dest': 'document',
+                                        'Sec-Fetch-Mode': 'navigate',
+                                        'Sec-Fetch-Site': 'cross-site',
+                                        'Sec-Fetch-User': '?1',
+                                        'Priority': 'u=0, i',
+                                        'Pragma': 'no-cache',
+                                        'Cache-Control': 'no-cache',
+                                    }
+                                    
+                                    response = session.get(download_url, headers=download_headers)
+                                    if response.status_code == 200:
+                                        file_path = lesson_path / file_name
+                                        with open(file_path, 'wb') as f:
+                                            f.write(response.content)
+                                        print(f"    + Arquivo salvo: {file_path}")
+                                    else:
+                                        print(f"    - Erro ao baixar {file_name}: {response.status_code}")
+                                except Exception as e:
+                                    print(f"    - Erro ao baixar {file_name}: {e}")
+                            else:
+                                print(f"    - URL não encontrada para {file_name}")
+                else:
+                    print(f"  - Erro ao obter dados da aula: {lesson_data.status_code}")
+    else:
+        print(f"Nao foi possivel extrair os dados do curso: {selected['name']}")
